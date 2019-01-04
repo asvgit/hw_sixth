@@ -3,6 +3,8 @@
 #include <sstream>
 #include <vector>
 #include <unistd.h>
+#include <fstream>
+#include <ctime>
 
 using string = std::string;
 using StringVector = std::vector<string>;
@@ -93,7 +95,6 @@ void DynamicHandler::Update(BulkManager::Observer *o, const string &cmd) {
 
 class ConsoleOutput : public BulkManager::Observer {
 public:
-
 	ConsoleOutput(BulkManager *mgr, const int size)
 		: Observer(mgr, size) {};
 
@@ -106,6 +107,23 @@ public:
 					<< n;
 		}
 		std::cout << std::endl;
+	}
+};
+
+class FileOutput : public BulkManager::Observer {
+	int cmd_time;
+
+public:
+	FileOutput(BulkManager *mgr, const int size)
+		: Observer(mgr, size) {};
+
+	void PostBulk() override {
+		if (m_bulk.empty())
+			return;
+
+		std::ofstream file("bulk" + std::to_string(std::time(0)) + ".log");
+		for (auto &n : m_bulk)
+			file << n << std::endl;
 	}
 };
 
@@ -122,6 +140,8 @@ int main(int argc, char *argv[]) {
 		BulkManager bulk_mgr;
 		ConsoleOutput co(&bulk_mgr, bulk_size);
 		co.SetUpdadeHandler(new SizedHandler());
+		FileOutput fo(&bulk_mgr, bulk_size);
+		fo.SetUpdadeHandler(new SizedHandler());
 		bulk_mgr.Listen();
 	} catch(const std::exception &e) {
 		std::cerr << e.what() << std::endl;

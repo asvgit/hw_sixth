@@ -5,6 +5,7 @@
 #include <unistd.h>
 #include <fstream>
 #include <ctime>
+#include <memory>
 
 using string = std::string;
 using StringVector = std::vector<string>;
@@ -18,9 +19,10 @@ public:
 			virtual void Update(Observer *, const string &) = 0;
 		};
 
-		Observer(BulkManager *mgr, const int size)
-			: max_size(size) { mgr->Subscribe(this); }
-		void SetUpdadeHandler(UpdateHandler *uh) { m_update_handler = uh; };
+		Observer(std::shared_ptr<BulkManager> mgr, const int size) : max_size(size) {
+			mgr->Subscribe(this);
+		}
+		void SetUpdadeHandler(UpdateHandler *uh) { m_update_handler.reset(uh); };
 		StringVector& GetBulk() { return m_bulk; }
 		int GetMaxSize() { return max_size; }
 		virtual void PostBulk() = 0;
@@ -29,7 +31,7 @@ public:
 				m_update_handler->Update(this, msg);
 		}
 	private:
-		UpdateHandler *m_update_handler = nullptr;
+		std::unique_ptr<UpdateHandler> m_update_handler;
 	protected:
 		StringVector m_bulk;
 		const int max_size;
@@ -40,19 +42,27 @@ public:
 	void Listen() {
 		for (string line; std::getline(std::cin, line);)
 			Notify(line);
+		Post();
 	}
 
 private:
-	std::vector<Observer*> m_subs;
+	std::vector<Observer *> m_subs;
 
 	void Notify(const string &chunk) {
 		for (const auto &s : m_subs)
 			s->Update(chunk);
 	};
+
+	void Post() {
+		for (const auto &s : m_subs)
+			s->PostBulk();
+	};
 };
+using MgrPtr = std::shared_ptr<BulkManager>;
 
 class DynamicHandler : public BulkManager::Observer::UpdateHandler {
 	int m_count = 0;
+	StringVector m_bulk;
 	virtual void Update(BulkManager::Observer *, const string &) override;
 };
 
@@ -84,18 +94,20 @@ void DynamicHandler::Update(BulkManager::Observer *o, const string &cmd) {
 		return;
 	}
 
-	auto &bulk = o->GetBulk();
 	if (!m_count && cmd == "}") {
+		auto &bulk = o->GetBulk();
+		o->GetBulk() = m_bulk;
 		o->PostBulk();
 		bulk.clear();
+		m_bulk.clear();
 		o->SetUpdadeHandler(new SizedHandler());
 	} else
-		bulk.push_back(cmd);
+		m_bulk.push_back(cmd);
 }
 
 class ConsoleOutput : public BulkManager::Observer {
 public:
-	ConsoleOutput(BulkManager *mgr, const int size)
+	ConsoleOutput(MgrPtr mgr, const int size)
 		: Observer(mgr, size) {};
 
 	void PostBulk() override {
@@ -114,7 +126,7 @@ class FileOutput : public BulkManager::Observer {
 	int cmd_time;
 
 public:
-	FileOutput(BulkManager *mgr, const int size)
+	FileOutput(MgrPtr mgr, const int size)
 		: Observer(mgr, size) {};
 
 	void PostBulk() override {
@@ -137,12 +149,12 @@ int main(int argc, char *argv[]) {
 			return n;
 		}();
 
-		BulkManager bulk_mgr;
-		ConsoleOutput co(&bulk_mgr, bulk_size);
+		MgrPtr bulk_mgr(new BulkManager());
+		ConsoleOutput co(bulk_mgr, bulk_size);
 		co.SetUpdadeHandler(new SizedHandler());
-		FileOutput fo(&bulk_mgr, bulk_size);
+		FileOutput fo(bulk_mgr, bulk_size);
 		fo.SetUpdadeHandler(new SizedHandler());
-		bulk_mgr.Listen();
+		bulk_mgr->Listen();
 	} catch(const std::exception &e) {
 		std::cerr << e.what() << std::endl;
 	}

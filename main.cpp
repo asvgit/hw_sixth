@@ -19,9 +19,7 @@ public:
 			virtual void Update(Observer *, const string &) = 0;
 		};
 
-		Observer(std::shared_ptr<BulkManager> mgr, const int size) : max_size(size) {
-			mgr->Subscribe(this);
-		}
+		Observer(const int size, UpdateHandler *uh) : m_update_handler(uh), max_size(size) {}
 		void SetUpdadeHandler(UpdateHandler *uh) { m_update_handler.reset(uh); };
 		StringVector& GetBulk() { return m_bulk; }
 		int GetMaxSize() { return max_size; }
@@ -36,8 +34,9 @@ public:
 		StringVector m_bulk;
 		const int max_size;
 	};
+	using ObsPtr = std::shared_ptr<Observer>;
 
-	void Subscribe(Observer *obs) { m_subs.push_back(obs); }
+	void Subscribe(ObsPtr &obs) { m_subs.push_back(obs); }
 
 	void Listen() {
 		for (string line; std::getline(std::cin, line);)
@@ -46,7 +45,7 @@ public:
 	}
 
 private:
-	std::vector<Observer *> m_subs;
+	std::vector<ObsPtr> m_subs;
 
 	void Notify(const string &chunk) {
 		for (const auto &s : m_subs)
@@ -107,13 +106,14 @@ void DynamicHandler::Update(BulkManager::Observer *o, const string &cmd) {
 
 class ConsoleOutput : public BulkManager::Observer {
 public:
-	ConsoleOutput(MgrPtr mgr, const int size)
-		: Observer(mgr, size) {};
+	ConsoleOutput(const int size) : Observer(size, new SizedHandler) {};
 
 	void PostBulk() override {
 		if (m_bulk.empty())
 			return;
+#ifdef NDEBUG
 		sleep(1);
+#endif
 		for (auto &n : m_bulk) {
 			std::cout << (&n == &m_bulk.front() ? "bulk: " : ", ")
 					<< n;
@@ -126,8 +126,7 @@ class FileOutput : public BulkManager::Observer {
 	int cmd_time;
 
 public:
-	FileOutput(MgrPtr mgr, const int size)
-		: Observer(mgr, size) {};
+	FileOutput(const int size) : Observer(size, new SizedHandler) {};
 
 	void PostBulk() override {
 		if (m_bulk.empty())
@@ -149,11 +148,12 @@ int main(int argc, char *argv[]) {
 			return n;
 		}();
 
+		BulkManager::ObsPtr co(new ConsoleOutput(bulk_size));
+		BulkManager::ObsPtr fo(new FileOutput(bulk_size));
+
 		MgrPtr bulk_mgr(new BulkManager());
-		ConsoleOutput co(bulk_mgr, bulk_size);
-		co.SetUpdadeHandler(new SizedHandler());
-		FileOutput fo(bulk_mgr, bulk_size);
-		fo.SetUpdadeHandler(new SizedHandler());
+		bulk_mgr->Subscribe(co);
+		bulk_mgr->Subscribe(fo);
 		bulk_mgr->Listen();
 	} catch(const std::exception &e) {
 		std::cerr << e.what() << std::endl;

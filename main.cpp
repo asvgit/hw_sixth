@@ -12,14 +12,18 @@ using StringVector = std::vector<string>;
 
 class BulkManager {
 public:
-	class Observer {
+	class Observer : public std::enable_shared_from_this<Observer> {
 	public:
 		class UpdateHandler {
 		public:
+			virtual ~UpdateHandler() = default;
 			virtual void Update(Observer *, const string &) = 0;
 		};
 
+
 		Observer(const int size, UpdateHandler *uh) : m_update_handler(uh), max_size(size) {}
+		virtual ~Observer() = default;
+		std::shared_ptr<Observer> GetPtr() { return shared_from_this(); }
 		void SetUpdadeHandler(UpdateHandler *uh) { m_update_handler.reset(uh); };
 		StringVector& GetBulk() { return m_bulk; }
 		int GetMaxSize() { return max_size; }
@@ -36,7 +40,7 @@ public:
 	};
 	using ObsPtr = std::shared_ptr<Observer>;
 
-	void Subscribe(ObsPtr &obs) { m_subs.push_back(obs); }
+	void Subscribe(ObsPtr &obs) { m_subs.push_back(obs->GetPtr()); }
 
 	void Listen() {
 		for (string line; std::getline(std::cin, line);)
